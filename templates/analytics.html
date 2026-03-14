@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Analytics - IPS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+    <div class="container mx-auto p-6">
+        <header class="mb-8 flex justify-between items-center border-b border-gray-700 pb-4">
+            <h1 class="text-2xl font-bold text-blue-400">Network Traffic Analytics</h1>
+            <a href="/" class="text-sm bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded transition">← Back to Dashboard</a>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+            <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-xl">
+                <h2 class="text-lg font-semibold mb-4 text-gray-300 text-center">Protocol Distribution</h2>
+                <div class="h-64 flex justify-center">
+                    <canvas id="protocolChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-xl">
+                <h2 class="text-lg font-semibold mb-4 text-gray-300 text-center">Threat Severity Frequency</h2>
+                <div class="h-64">
+                    <canvas id="severityChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-xl">
+            <h2 class="text-lg font-semibold mb-6 text-gray-300">Cross-Analysis: Protocol vs. Severity</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="text-gray-400 border-b border-gray-700">
+                            <th class="py-3 px-4 uppercase text-xs">Protocol</th>
+                            <th class="py-3 px-4 uppercase text-xs text-gray-400">Info</th>
+                            <th class="py-3 px-4 uppercase text-xs text-blue-400">Low</th>
+                            <th class="py-3 px-4 uppercase text-xs text-yellow-500">Medium</th>
+                            <th class="py-3 px-4 uppercase text-xs text-red-500">High</th>
+                            <th class="py-3 px-4 uppercase text-xs font-bold text-white">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="matrixBody" class="divide-y divide-gray-700">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let protocolChart, severityChart;
+        const PROTO_MAP = { 6: "TCP", 17: "UDP", 1: "ICMP" };
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/data');
+                const data = await response.json();
+                
+                // --- Data Processing for Matrix ---
+                const matrix = {
+                    "TCP": { "Info": 0, "Low": 0, "Medium": 0, "High": 0, "Total": 0 },
+                    "UDP": { "Info": 0, "Low": 0, "Medium": 0, "High": 0, "Total": 0 },
+                    "ICMP": { "Info": 0, "Low": 0, "Medium": 0, "High": 0, "Total": 0 },
+                    "Other": { "Info": 0, "Low": 0, "Medium": 0, "High": 0, "Total": 0 }
+                };
+
+                const severityCounts = { "Info": 0, "Low": 0, "Medium": 0, "High": 0 };
+
+                data.packets.forEach(pkt => {
+                    const protoName = PROTO_MAP[pkt.proto] || "Other";
+                    let sev = pkt.severity || pkt.level || "Info";
+                    sev = sev.charAt(0).toUpperCase() + sev.slice(1).toLowerCase();
+
+                    if (matrix[protoName] && matrix[protoName].hasOwnProperty(sev)) {
+                        matrix[protoName][sev]++;
+                        matrix[protoName]["Total"]++;
+                        severityCounts[sev]++;
+                    }
+                });
+
+                // --- Update Matrix Table ---
+                const matrixBody = document.getElementById('matrixBody');
+                matrixBody.innerHTML = Object.keys(matrix).map(proto => `
+                    <tr class="hover:bg-gray-700/50 transition">
+                        <td class="py-4 px-4 font-bold text-blue-300">${proto}</td>
+                        <td class="py-4 px-4 text-gray-400">${matrix[proto].Info}</td>
+                        <td class="py-4 px-4 text-blue-400">${matrix[proto].Low}</td>
+                        <td class="py-4 px-4 text-yellow-500">${matrix[proto].Medium}</td>
+                        <td class="py-4 px-4 text-red-500 font-semibold">${matrix[proto].High}</td>
+                        <td class="py-4 px-4 font-bold text-white">${matrix[proto].Total}</td>
+                    </tr>
+                `).join('');
+
+                // --- Update Charts (Protocol & Severity) ---
+                updateCharts(data.stats, severityCounts);
+
+            } catch (err) { console.error("Update Error:", err); }
+        }
+
+        function updateCharts(stats, severityCounts) {
+            const protoLabels = Object.keys(stats);
+            const protoValues = Object.values(stats);
+            const sevLabels = ["Info", "Low", "Medium", "High"];
+            const sevValues = [severityCounts.Info, severityCounts.Low, severityCounts.Medium, severityCounts.High];
+
+            if (!protocolChart) {
+                const ctx1 = document.getElementById('protocolChart').getContext('2d');
+                protocolChart = new Chart(ctx1, {
+                    type: 'doughnut',
+                    data: {
+                        labels: protoLabels,
+                        datasets: [{ data: protoValues, backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'], borderWidth: 0 }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#9ca3af' } } } }
+                });
+            } else {
+                protocolChart.data.datasets[0].data = protoValues;
+                protocolChart.update();
+            }
+
+            if (!severityChart) {
+                const ctx2 = document.getElementById('severityChart').getContext('2d');
+                severityChart = new Chart(ctx2, {
+                    type: 'bar',
+                    data: {
+                        labels: sevLabels,
+                        datasets: [{
+                            data: sevValues,
+                            backgroundColor: ['#6b7280', '#3b82f6', '#f59e0b', '#ef4444'],
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, ticks: { color: '#9ca3af', precision: 0 }, grid: { color: '#374151' } },
+                            x: { ticks: { color: '#9ca3af' }, grid: { display: false } }
+                        },
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            } else {
+                severityChart.data.datasets[0].data = sevValues;
+                severityChart.update();
+            }
+        }
+
+        setInterval(updateDashboard, 2000);
+        updateDashboard();
+    </script>
+</body>
+</html>

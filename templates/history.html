@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blocked History - IPS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+    <div class="container mx-auto p-6">
+        <header class="mb-8 flex justify-between items-center border-b border-gray-700 pb-4">
+            <h1 class="text-2xl font-bold text-red-500">Blocked Traffic History</h1>
+            <a href="/" class="text-sm bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded transition">← Back to Dashboard</a>
+        </header>
+
+        <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 mb-8 shadow-lg">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                
+                <div class="space-y-3">
+                    <h3 class="text-xs font-bold text-blue-400 uppercase tracking-wider">1. Date Range</h3>
+                    <input type="text" id="fromDate" placeholder="From: DD/MM/YYYY" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none">
+                    <input type="text" id="toDate" placeholder="To: DD/MM/YYYY" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none">
+                </div>
+
+                <div class="space-y-3">
+                    <h3 class="text-xs font-bold text-blue-400 uppercase tracking-wider">2. Protocols</h3>
+                    <div class="flex flex-col gap-2">
+                        <label class="flex items-center text-sm"><input type="checkbox" class="proto-check mr-2" value="6" checked> TCP (6)</label>
+                        <label class="flex items-center text-sm"><input type="checkbox" class="proto-check mr-2" value="17" checked> UDP (17)</label>
+                        <label class="flex items-center text-sm"><input type="checkbox" class="proto-check mr-2" value="1" checked> ICMP (1)</label>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <h3 class="text-xs font-bold text-blue-400 uppercase tracking-wider">3. Source IP</h3>
+                    <div class="flex items-center gap-4 mb-2">
+                        <label class="text-xs"><input type="radio" name="srcType" value="any" checked onclick="toggleIP('src')"> Any</label>
+                        <label class="text-xs"><input type="radio" name="srcType" value="specific" onclick="toggleIP('src')"> Specific</label>
+                    </div>
+                    <input type="text" id="srcIp" placeholder="e.g. 192.168.1.1" disabled class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm opacity-50 outline-none">
+                </div>
+
+                <div class="space-y-3">
+                    <h3 class="text-xs font-bold text-blue-400 uppercase tracking-wider">4. Destination IP</h3>
+                    <div class="flex items-center gap-4 mb-2">
+                        <label class="text-xs"><input type="radio" name="dstType" value="any" checked onclick="toggleIP('dst')"> Any</label>
+                        <label class="text-xs"><input type="radio" name="dstType" value="specific" onclick="toggleIP('dst')"> Specific</label>
+                    </div>
+                    <input type="text" id="dstIp" placeholder="e.g. 10.0.0.5" disabled class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm opacity-50 outline-none">
+                </div>
+            </div>
+
+            <div class="mt-8 border-t border-gray-700 pt-6 flex flex-col items-center">
+                <button onclick="fetchHistory()" class="bg-blue-600 hover:bg-blue-500 text-white px-10 py-3 rounded-lg font-bold transition shadow-lg">Apply Search Filters</button>
+                <p id="statusMsg" class="mt-4 text-sm text-gray-500 italic">Configure filters and click search to view records.</p>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden shadow-xl">
+            <table class="w-full text-left">
+                <thead class="bg-gray-700/50 text-gray-400 text-xs uppercase">
+                    <tr>
+                        <th class="px-6 py-4">Timestamp</th>
+                        <th class="px-6 py-4">Source</th>
+                        <th class="px-6 py-4">Destination</th>
+                        <th class="px-6 py-4">Protocol</th>
+                        <th class="px-6 py-4">Size</th>
+                        <th class="px-6 py-4 text-red-400">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody" class="divide-y divide-gray-700"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Toggle IP input based on Radio button
+        function toggleIP(type) {
+            const isAny = document.querySelector(`input[name="${type}Type"]:checked`).value === 'any';
+            const input = document.getElementById(`${type}Ip`);
+            input.disabled = isAny;
+            input.classList.toggle('opacity-50', isAny);
+            if(isAny) input.value = '';
+        }
+
+        function parseDate(dateStr) {
+            const [day, month, year] = dateStr.split('/').map(Number);
+            return new Date(year, month - 1, day);
+        }
+
+        async function fetchHistory() {
+            const statusMsg = document.getElementById('statusMsg');
+            const tableBody = document.getElementById('historyBody');
+            
+            // Collect Filter Values
+            const fromStr = document.getElementById('fromDate').value.trim();
+            const toStr = document.getElementById('toDate').value.trim();
+            
+            if (!fromStr || !toStr) {
+                alert("Please enter a valid Date Range.");
+                return;
+            }
+
+            const selectedProtos = Array.from(document.querySelectorAll('.proto-check:checked')).map(cb => parseInt(cb.value));
+            const srcType = document.querySelector('input[name="srcType"]:checked').value;
+            const srcVal = document.getElementById('srcIp').value.trim();
+            const dstType = document.querySelector('input[name="dstType"]:checked').value;
+            const dstVal = document.getElementById('dstIp').value.trim();
+
+            try {
+                statusMsg.innerText = "Searching...";
+                const response = await fetch('/get_history');
+                const records = await response.json();
+
+                const fromDate = parseDate(fromStr);
+                const toDate = parseDate(toStr);
+
+                // --- MULTI-FILTER LOGIC ---
+                const filtered = records.filter(r => {
+                    // 1. Date Check
+                    const recordDate = parseDate(r.timestamp.split(' ')[0]);
+                    const inDateRange = recordDate >= fromDate && recordDate <= toDate;
+
+                    // 2. Protocol Check
+                    const protoMatch = selectedProtos.includes(r.proto);
+
+                    // 3. Source IP Check
+                    const srcMatch = (srcType === 'any') || (r.src === srcVal);
+
+                    // 4. Destination IP Check
+                    const dstMatch = (dstType === 'any') || (r.dst === dstVal);
+
+                    return inDateRange && protoMatch && srcMatch && dstMatch;
+                });
+
+                // Render Results
+                tableBody.innerHTML = '';
+                if (filtered.length === 0) {
+                    statusMsg.innerText = "No records match those criteria.";
+                    statusMsg.className = "mt-4 text-sm text-yellow-500 italic";
+                } else {
+                    statusMsg.innerText = `Found ${filtered.length} matching record(s).`;
+                    statusMsg.className = "mt-4 text-sm text-green-500 italic";
+                    
+                    filtered.forEach(r => {
+                        const protoLabel = r.proto === 6 ? 'TCP' : r.proto === 17 ? 'UDP' : r.proto === 1 ? 'ICMP' : r.proto;
+                        tableBody.innerHTML += `
+                            <tr class="hover:bg-gray-700/30 transition">
+                                <td class="px-6 py-4 text-xs font-mono text-gray-400">${r.timestamp}</td>
+                                <td class="px-6 py-4 text-sm font-semibold">${r.src}</td>
+                                <td class="px-6 py-4 text-sm text-blue-300">${r.dst}</td>
+                                <td class="px-6 py-4 text-xs"><span class="bg-gray-700 px-2 py-1 rounded">${protoLabel}</span></td>
+                                <td class="px-6 py-4 text-sm text-gray-400">${r.size} B</td>
+                                <td class="px-6 py-4 text-sm font-bold text-red-500">${r.action}</td>
+                            </tr>`;
+                    });
+                }
+            } catch (err) {
+                statusMsg.innerText = "Connection error.";
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>
